@@ -42,14 +42,14 @@ class SemaphoreManager:
         async with self.lock:
             self.active_tasks += 1
 
-    def release(self, url: str) -> None:
-
+    async def release(self, url: str) -> None:
         domain = self.get_domain(url)
 
         self.domain_semaphores[domain].release()
         self.global_semaphore.release()
 
-        self.active_tasks = max(0, self.active_tasks - 1)
+        async with self.lock:
+            self.active_tasks = max(0, self.active_tasks - 1)
 
     def stats(
         self,
