@@ -1,7 +1,24 @@
 import asyncio
 import time
-
+import requests
 from crawler import AsyncCrawler
+from bs4 import BeautifulSoup
+
+def fetch_sync(urls):
+    results = {}
+
+    start = time.perf_counter()
+
+    for url in urls:
+        try:
+            r = requests.get(url, timeout=10)
+            results[url] = r.text
+        except Exception:
+            results[url] = ""
+
+    elapsed = time.perf_counter() - start
+
+    return results, elapsed
 
 
 async def main():
@@ -23,13 +40,11 @@ async def main():
     print("DAY 1 - FETCH URLS")
     print("=" * 60)
 
+    sync_results, sync_time = fetch_sync(urls)
+
     start = time.perf_counter()
-
-    html_results = await crawler.fetch_urls(
-        urls
-    )
-
-    elapsed = time.perf_counter() - start
+    html_results = await crawler.fetch_urls(urls)
+    async_time = time.perf_counter() - start
 
     for url, html in html_results.items():
 
@@ -41,9 +56,15 @@ async def main():
         f"\nLoaded {len(html_results)} pages"
     )
 
-    print(
-        f"Total time: {elapsed:.2f} sec"
-    )
+    print(f"Async time: {async_time:.2f} sec")
+
+    print("\nSYNC vs ASYNC COMPARISON")
+    print(f"Sync time:  {sync_time:.2f}s")
+    print(f"Async time: {async_time:.2f}s")
+
+    if async_time > 0:
+        print(f"Speedup:    {sync_time / async_time:.2f}x")
+
 
     # ==========================
     # DAY 2
@@ -52,6 +73,44 @@ async def main():
     print("\n" + "=" * 60)
     print("DAY 2 - FETCH AND PARSE")
     print("=" * 60)
+
+
+    print("\nPARSER SANITY CHECK")
+
+
+
+    test_html = "<a href='/test'>Test</a>"
+    soup = BeautifulSoup(test_html, "lxml")
+
+    print("\nBROKEN HTML CHECK")
+
+    broken_html = "<a href='/broken"
+    print(crawler.parser.extract_links(
+        BeautifulSoup(broken_html, "html.parser"),
+        "https://example.com"
+    ))
+
+
+    print("\nRAW BEAUTIFULSOUP TEST")
+
+    print(
+        crawler.parser.extract_links(
+            BeautifulSoup(test_html, "lxml"),
+            "https://example.com"
+        )
+    )
+
+    print("\nPREPARSED SOUP TEST")
+
+    print(
+        crawler.parser.extract_links(
+            soup,
+            "https://example.com"
+        )
+    )
+
+
+
 
     start = time.perf_counter()
 
