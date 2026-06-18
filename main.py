@@ -1,7 +1,24 @@
 import asyncio
 import time
-
+import requests
 from crawler import AsyncCrawler
+from bs4 import BeautifulSoup
+
+def fetch_sync(urls):
+    results = {}
+
+    start = time.perf_counter()
+
+    for url in urls:
+        try:
+            r = requests.get(url, timeout=10)
+            results[url] = r.text
+        except Exception:
+            results[url] = ""
+
+    elapsed = time.perf_counter() - start
+
+    return results, elapsed
 
 
 async def main():
@@ -23,13 +40,11 @@ async def main():
     print("DAY 1 - FETCH URLS")
     print("=" * 60)
 
+    sync_results, sync_time = fetch_sync(urls)
+
     start = time.perf_counter()
-
-    html_results = await crawler.fetch_urls(
-        urls
-    )
-
-    elapsed = time.perf_counter() - start
+    html_results = await crawler.fetch_urls(urls)
+    async_time = time.perf_counter() - start
 
     for url, html in html_results.items():
 
@@ -41,9 +56,15 @@ async def main():
         f"\nLoaded {len(html_results)} pages"
     )
 
-    print(
-        f"Total time: {elapsed:.2f} sec"
-    )
+    print(f"Async time: {async_time:.2f} sec")
+
+    print("\nSYNC vs ASYNC COMPARISON")
+    print(f"Sync time:  {sync_time:.2f}s")
+    print(f"Async time: {async_time:.2f}s")
+
+    if async_time > 0:
+        print(f"Speedup:    {sync_time / async_time:.2f}x")
+
 
     # ==========================
     # DAY 2
@@ -52,6 +73,44 @@ async def main():
     print("\n" + "=" * 60)
     print("DAY 2 - FETCH AND PARSE")
     print("=" * 60)
+
+
+    print("\nPARSER SANITY CHECK")
+
+
+
+    test_html = "<a href='/test'>Test</a>"
+    soup = BeautifulSoup(test_html, "lxml")
+
+    print("\nBROKEN HTML CHECK")
+
+    broken_html = "<a href='/broken"
+    print(crawler.parser.extract_links(
+        BeautifulSoup(broken_html, "html.parser"),
+        "https://example.com"
+    ))
+
+
+    print("\nRAW BEAUTIFULSOUP TEST")
+
+    print(
+        crawler.parser.extract_links(
+            BeautifulSoup(test_html, "lxml"),
+            "https://example.com"
+        )
+    )
+
+    print("\nPREPARSED SOUP TEST")
+
+    print(
+        crawler.parser.extract_links(
+            soup,
+            "https://example.com"
+        )
+    )
+
+
+
 
     start = time.perf_counter()
 
@@ -318,11 +377,104 @@ async def main():
 
 
 
-    await crawler.close()
+    # ==========================
+    # DAY 4
+    # ==========================
+
+    print("\n" + "=" * 60)
+    print("DAY 4 - RATE LIMIT + ROBOTS TEST")
+    print("=" * 60)
+
+    test_crawler = AsyncCrawler(
+        max_concurrent=5,
+        max_depth=1,
+        per_domain_limit=2,
+    )
+
+    urls = [
+        "https://example.com",
+        "https://www.python.org",
+    ]
+
+    # ==========================
+    # 1. BASIC CRAWL TEST
+    # ==========================
+    print("\n🟢 1. BASIC CRAWL TEST")
+
+    start = time.perf_counter()
+
+    results = await test_crawler.crawl(
+        start_urls=urls,
+        max_pages=10,
+    )
+
+    elapsed = time.perf_counter() - start
+
+    print(f"Pages crawled: {len(results)}")
+    print(f"Time: {elapsed:.2f}s")
+
+    # ==========================
+    # 2. SYSTEM STATS
+    # ==========================
+    print("\n🟡 2. SYSTEM STATS")
+
+    print(f"Blocked by robots: {test_crawler.blocked_by_robots}")
+    print(f"Rate limited: {test_crawler.rate_limited_count}")
+    print(f"Active tasks: {test_crawler.semaphore_manager.active_tasks}")
+    print(f"Queue stats: {test_crawler.queue.get_stats()}")
+
+    # ==========================
+    # 3. RATE LIMIT TEST (sequential)
+    # ==========================
+    print("\n🔵 3. RATE LIMIT TEST")
+
+    start = time.perf_counter()
+
+    for _ in range(5):
+        await test_crawler.fetch_url("https://example.com")
+
+    elapsed2 = time.perf_counter() - start
+
+    print(f"5 sequential requests: {elapsed2:.2f}s")
+
+    if elapsed2 < 2.0:
+        print("❌ RATE LIMIT FAIL (too fast)")
+    else:
+        print("✅ RATE LIMIT OK")
+
+    # ==========================
+    # 4. CONCURRENCY TEST
+    # ==========================
+    print("\n🟣 4. CONCURRENCY TEST")
+
+    start = time.perf_counter()
+
+    tasks = [
+        test_crawler.fetch_url("https://example.com")
+        for _ in range(10)
+    ]
+
+    await asyncio.gather(*tasks)
+
+    elapsed3 = time.perf_counter() - start
+
+    print(f"10 parallel requests: {elapsed3:.2f}s")
+
+    print(f"Final active tasks: {test_crawler.semaphore_manager.active_tasks}")
+
+    if test_crawler.semaphore_manager.active_tasks != 0:
+        print("❌ SEMAPHORE LEAK")
+    else:
+        print("✅ SEMAPHORE OK")
+
+    await test_crawler.close()
 
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
+
 
 
 
