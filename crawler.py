@@ -218,6 +218,19 @@ class AsyncCrawler:
                 await asyncio.sleep(2)  # простой backoff
 
             logging.error(f"❌ HTTP error {url} | {e.status}")
+            self.failed_urls[url] = f"HTTP {e.status}"
+            return ""
+
+        except asyncio.TimeoutError:
+            logging.error(f"⏰ Timeout error: {url}")
+            self.failed_urls[url] = "Timeout"
+            return ""
+
+        except aiohttp.ClientError as e:
+            logging.error(
+                f"❌ Network error: {url} | {type(e).__name__}: {e}"
+            )
+            self.failed_urls[url] = f"{type(e).__name__}: {e}"
             return ""
 
         finally:

@@ -30,6 +30,8 @@ async def main():
         "https://www.python.org",
         "https://github.com",
         "https://docs.python.org/3/",
+        "https://httpbin.org/delay/1",
+        "https://httpbin.org/status/404",
     ]
 
     # ==========================
@@ -47,14 +49,11 @@ async def main():
     async_time = time.perf_counter() - start
 
     for url, html in html_results.items():
+        status = "OK" if html else "ERROR"
+        print(f"{url} -> {status} ({len(html)} chars)")
 
-        print(
-            f"{url} -> {len(html)} chars"
-        )
-
-    print(
-        f"\nLoaded {len(html_results)} pages"
-    )
+    loaded_count = sum(bool(html) for html in html_results.values())
+    print(f"\nLoaded {loaded_count}/{len(html_results)} pages")
 
     print(f"Async time: {async_time:.2f} sec")
 

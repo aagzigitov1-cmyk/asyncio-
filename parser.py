@@ -9,71 +9,105 @@ logger = logging.getLogger(__name__)
 
 class HTMLParser:
 
+    def _empty_result(self, url: str) -> dict:
+        return {
+            "url": url,
+            "title": "",
+            "text": "",
+            "links": [],
+            "metadata": {},
+            "images": [],
+            "headings": {
+                "h1": [],
+                "h2": [],
+                "h3": [],
+            },
+            "tables": [],
+            "lists": [],
+        }
+
+    def _safe_extract(
+        self,
+        extractor_name: str,
+        url: str,
+        default,
+        extractor,
+    ):
+        try:
+            return extractor()
+        except Exception as e:
+            logger.warning(
+                f"Extract error | {extractor_name} | {url} | {e}"
+            )
+            return default
+
     async def parse_html(
         self,
         html: str,
         url: str
     ) -> dict:
 
+        result = self._empty_result(url)
+
         try:
-            soup = BeautifulSoup(
-                html,
-                "lxml"
-            )
-
-            metadata = self.extract_metadata(
-                soup
-            )
-
-            return {
-                "url": url,
-                "title": metadata.get(
-                    "title",
-                    ""
-                ),
-                "text": self.extract_text(
-                    soup
-                ),
-                "links": self.extract_links(
-                    soup,
-                    url
-                ),
-                "metadata": metadata,
-                "images": self.extract_images(
-                    soup,
-                    url
-                ),
-                "headings": self.extract_headings(
-                    soup
-                ),
-                "tables": self.extract_tables(
-                    soup
-                ),
-                "lists": self.extract_lists(
-                    soup
-                ),
-            }
-
+            soup = BeautifulSoup(html, "lxml")
         except Exception as e:
             logger.warning(
                 f"Parse error | {url} | {e}"
             )
+            return result
 
-            return {
-                "url": url,
-                "title": "",
-                "text": "",
-                "links": [],
-                "metadata": {},
-                "images": [],
-                "headings": {
-                    "h1": [],
-                    "h2": [],
-                    "h3": [],
-                },
-                "tables": [],
-                "lists": [],
+        metadata = self._safe_extract(
+            "metadata",
+            url,
+            {},
+            lambda: self.extract_metadata(soup),
+        )
+
+        result.update(
+            {
+                "title": metadata.get("title", ""),
+                "text": self._safe_extract(
+                    "text",
+                    url,
+                    "",
+                    lambda: self.extract_text(soup),
+                ),
+                "links": self._safe_extract(
+                    "links",
+                    url,
+                    [],
+                    lambda: self.extract_links(soup, url),
+                ),
+                "metadata": metadata,
+                "images": self._safe_extract(
+                    "images",
+                    url,
+                    [],
+                    lambda: self.extract_images(soup, url),
+                ),
+                "headings": self._safe_extract(
+                    "headings",
+                    url,
+                    {"h1": [], "h2": [], "h3": []},
+                    lambda: self.extract_headings(soup),
+                ),
+                "tables": self._safe_extract(
+                    "tables",
+                    url,
+                    [],
+                    lambda: self.extract_tables(soup),
+                ),
+                "lists": self._safe_extract(
+                    "lists",
+                    url,
+                    [],
+                    lambda: self.extract_lists(soup),
+                ),
             }
+        )
+
+        return result
 
     def extract_links(
         self,
@@ -98,10 +132,16 @@ class HTMLParser:
                 absolute_url
             )
 
-            if parsed.scheme in (
-                "http",
-                "https",
-            ):
+            try:
+                is_valid = (
+                    parsed.scheme in ("http", "https")
+                    and bool(parsed.netloc)
+                    and bool(parsed.hostname)
+                )
+            except ValueError:
+                is_valid = False
+
+            if is_valid:
                 links.append(
                     absolute_url
                 )
