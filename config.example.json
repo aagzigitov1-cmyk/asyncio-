@@ -1,0 +1,28 @@
+{
+  "start_urls": ["https://example.com"],
+  "max_pages": 100,
+  "crawler": {
+    "max_concurrent": 10,
+    "max_depth": 2,
+    "requests_per_second": 2.0,
+    "respect_robots": true,
+    "user_agent": "AdvancedCrawler/1.0"
+  },
+  "filters": {
+    "same_domain_only": true,
+    "include_patterns": [],
+    "exclude_patterns": ["logout", "admin"]
+  },
+  "sitemaps": [],
+  "storage": {
+    "format": "jsonl",
+    "path": "results.jsonl",
+    "options": {"buffer_size": 100}
+  },
+  "logging": {
+    "file": "logs/crawler.log",
+    "level": "INFO",
+    "max_bytes": 5000000,
+    "backup_count": 3
+  }
+}

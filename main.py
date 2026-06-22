@@ -3,6 +3,7 @@ import time
 import requests
 from crawler import AsyncCrawler
 from bs4 import BeautifulSoup
+from storage import CSVStorage, JSONStorage, SQLiteStorage
 
 def fetch_sync(urls):
     results = {}
@@ -388,6 +389,13 @@ async def main():
         max_concurrent=5,
         max_depth=1,
         per_domain_limit=2,
+        requests_per_second=2.0,
+        respect_robots=True,
+        min_delay=0.5,
+        jitter=0.2,
+        user_agent="MyBot/1.0",
+        max_retries=2,
+        backoff_base=1.0,
     )
 
     urls = [
@@ -421,6 +429,7 @@ async def main():
     print(f"Rate limited: {test_crawler.rate_limited_count}")
     print(f"Active tasks: {test_crawler.semaphore_manager.active_tasks}")
     print(f"Queue stats: {test_crawler.queue.get_stats()}")
+    print(f"Rate stats: {test_crawler.get_rate_stats()}")
 
     # ==========================
     # 3. RATE LIMIT TEST (sequential)
@@ -467,6 +476,82 @@ async def main():
         print("✅ SEMAPHORE OK")
 
     await test_crawler.close()
+
+    # ==========================
+    # DAY 5
+    # ==========================
+
+    print("\n" + "=" * 60)
+    print("DAY 5 - ERROR HANDLING + RETRIES")
+    print("=" * 60)
+
+    retry_crawler = AsyncCrawler(
+        max_concurrent=3,
+        requests_per_second=5.0,
+        respect_robots=False,
+        max_retries=2,
+        backoff_base=0.5,
+        total_timeout=5.0,
+        timeout_growth=1.5,
+    )
+
+    error_urls = [
+        "https://httpbin.org/status/503",
+        "https://httpbin.org/status/404",
+        "https://httpbin.org/status/429",
+    ]
+
+    await retry_crawler.fetch_urls(error_urls)
+    print(f"Error statistics: {retry_crawler.get_error_stats()}")
+    print(f"Error details: {retry_crawler.error_details}")
+    print(
+        "Circuit breaker statistics: "
+        f"{retry_crawler.get_circuit_breaker_stats()}"
+    )
+
+    await retry_crawler.save_error_report("error_report.json")
+    print("Error report saved to error_report.json")
+    await retry_crawler.close()
+
+    # ==========================
+    # DAY 6
+    # ==========================
+
+    print("\n" + "=" * 60)
+    print("DAY 6 - ASYNC DATA STORAGE")
+    print("=" * 60)
+
+    json_storage = JSONStorage(
+        "crawler_results.jsonl",
+        buffer_size=10,
+    )
+    storage_crawler = AsyncCrawler(
+        storage=json_storage,
+        requests_per_second=2.0,
+        max_retries=1,
+    )
+    stored_results = await storage_crawler.crawl(
+        start_urls=["https://example.com"],
+        max_pages=1,
+    )
+    await storage_crawler.close()
+
+    pages = list(stored_results.values())
+    csv_storage = CSVStorage("crawler_results.csv")
+    sqlite_storage = SQLiteStorage(
+        "crawler_results.db",
+        batch_size=50,
+    )
+    await csv_storage.save_many(pages)
+    await sqlite_storage.save_many(pages)
+
+    print(f"JSON rows: {len(await json_storage.read_all())}")
+    print(f"CSV rows: {len(await csv_storage.read_all())}")
+    print(f"SQLite rows: {len(await sqlite_storage.read_all())}")
+    print(f"Storage stats: {storage_crawler.get_storage_stats()}")
+
+    await csv_storage.close()
+    await sqlite_storage.close()
 
 
 if __name__ == "__main__":

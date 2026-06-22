@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 .venv/
+crawler_results.*
+error_report.json
+*.log
