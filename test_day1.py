@@ -22,11 +22,14 @@ class Day1CrawlerTests(unittest.IsolatedAsyncioTestCase):
         port = self.site._server.sockets[0].getsockname()[1]
         self.base_url = f"http://127.0.0.1:{port}"
 
-        self.crawler = AsyncCrawler(max_concurrent=5)
-        self.crawler.respect_robots = False
-        self.crawler.rate_limiter.rps = 1000
-        self.crawler.rate_limiter.min_delay = 0
-        self.crawler.rate_limiter.jitter = 0
+        self.crawler = AsyncCrawler(
+            max_concurrent=5,
+            requests_per_second=1000,
+            respect_robots=False,
+            min_delay=0,
+            jitter=0,
+            max_retries=0,
+        )
 
     async def asyncTearDown(self):
         await self.crawler.close()
@@ -50,7 +53,11 @@ class Day1CrawlerTests(unittest.IsolatedAsyncioTestCase):
         url = f"{self.base_url}/missing"
         html = await self.crawler.fetch_url(url)
         self.assertEqual(html, "")
-        self.assertEqual(self.crawler.failed_urls[url], "HTTP 404")
+        self.assertIn("HTTP 404", self.crawler.failed_urls[url])
+        self.assertEqual(
+            self.crawler.error_details[url]["type"],
+            "PermanentError",
+        )
 
     async def test_client_error_does_not_crash(self):
         url = "not-a-valid-url"
@@ -63,7 +70,11 @@ class Day1CrawlerTests(unittest.IsolatedAsyncioTestCase):
         self.crawler.timeout = ClientTimeout(total=0.03)
         html = await self.crawler.fetch_url(url)
         self.assertEqual(html, "")
-        self.assertEqual(self.crawler.failed_urls[url], "Timeout")
+        self.assertIn("Timeout", self.crawler.failed_urls[url])
+        self.assertEqual(
+            self.crawler.error_details[url]["type"],
+            "TransientError",
+        )
 
     async def test_parallel_fetch_is_faster_than_sequential(self):
         urls = [f"{self.base_url}/slow?request={index}" for index in range(3)]

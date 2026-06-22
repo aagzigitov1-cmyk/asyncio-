@@ -3,3 +3,4 @@ aiofiles==24.1.0
 beautifulsoup4==4.12.3
 lxml==5.2.2
 requests==2.32.3
+aiosqlite==0.20.0

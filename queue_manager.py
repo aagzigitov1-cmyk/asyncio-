@@ -56,8 +56,12 @@ class CrawlerQueue:
         return True
 
 
-    async def get_next(self) -> QueueItem:
-        _, _, item = await self.queue.get()
+    async def get_next(self) -> QueueItem | None:
+        try:
+            _, _, item = self.queue.get_nowait()
+        except asyncio.QueueEmpty:
+            return None
+
         return item
 
     def mark_processed(

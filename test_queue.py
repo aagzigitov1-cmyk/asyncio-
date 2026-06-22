@@ -1,57 +1,20 @@
-import asyncio
+import unittest
 
 from queue_manager import CrawlerQueue
 
 
-async def main():
+class CrawlerQueueTests(unittest.IsolatedAsyncioTestCase):
+    async def test_priority_and_empty_queue(self):
+        queue = CrawlerQueue()
+        await queue.add_url("https://example.com/low", priority=10)
+        await queue.add_url("https://example.com/high", priority=1)
+        await queue.add_url("https://example.com/medium", priority=5)
 
-    queue = CrawlerQueue()
-
-    await queue.add_url(
-        "https://example.com",
-        depth=0,
-    )
-
-    await queue.add_url(
-        "https://python.org",
-        depth=1,
-    )
-
-    item = await queue.get_next()
-
-    print(item)
-
-    print(queue.get_stats())
+        self.assertEqual((await queue.get_next()).priority, 1)
+        self.assertEqual((await queue.get_next()).priority, 5)
+        self.assertEqual((await queue.get_next()).priority, 10)
+        self.assertIsNone(await queue.get_next())
 
 
-
-    crawler = AsyncCrawler(
-        max_concurrent=10,
-        max_depth=2,
-    )
-
-    results = await crawler.crawl(
-        start_urls=[
-            "https://example.com"
-        ],
-        max_pages=50,
-    )
-
-    print(
-        f"Processed: {len(results)}"
-    )
-
-
-
-
-
-
-
-asyncio.run(main())
-
-
-
-
-
-
-
+if __name__ == "__main__":
+    unittest.main()
