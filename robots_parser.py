@@ -1,4 +1,6 @@
+import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
 
@@ -12,6 +14,7 @@ class RobotsParser:
     def __init__(self):
         self.cache: dict[str, dict] = {}
         self._last_base_url: str | None = None
+        self._locks: dict[str, asyncio.Lock] = {}
 
     def _base_url(self, url: str) -> str:
         parsed = urlparse(url)
@@ -22,12 +25,37 @@ class RobotsParser:
         base_url: str,
         session: aiohttp.ClientSession | None = None,
         user_agent: str = "*",
+        fetcher: Callable[[str, str], Awaitable[tuple[int, str]]] | None = None,
     ) -> dict:
         base_url = self._base_url(base_url)
         self._last_base_url = base_url
 
         if base_url in self.cache:
             return self.cache[base_url]
+
+        lock = self._locks.setdefault(base_url, asyncio.Lock())
+        async with lock:
+            # Another coroutine may have populated the cache while this one
+            # was waiting for the per-domain lock.
+            if base_url in self.cache:
+                return self.cache[base_url]
+
+            rules = await self._load_robots(
+                base_url,
+                session,
+                user_agent,
+                fetcher,
+            )
+            self.cache[base_url] = rules
+            return rules
+
+    async def _load_robots(
+        self,
+        base_url: str,
+        session: aiohttp.ClientSession | None,
+        user_agent: str,
+        fetcher: Callable[[str, str], Awaitable[tuple[int, str]]] | None,
+    ) -> dict:
 
         robots_url = f"{base_url}/robots.txt"
         parser = RobotFileParser(robots_url)
@@ -38,25 +66,28 @@ class RobotsParser:
             "status": None,
         }
 
-        owns_session = session is None
-        if session is None:
+        owns_session = session is None and fetcher is None
+        if session is None and fetcher is None:
             session = aiohttp.ClientSession()
 
         try:
-            async with session.get(
-                robots_url,
-                headers={"User-Agent": user_agent},
-            ) as response:
-                rules["status"] = response.status
+            if fetcher is not None:
+                status, body = await fetcher(robots_url, user_agent)
+            else:
+                async with session.get(
+                    robots_url,
+                    headers={"User-Agent": user_agent},
+                ) as response:
+                    status = response.status
+                    body = await response.text()
 
-                if response.status in (401, 403):
-                    parser.disallow_all = True
-                elif 400 <= response.status < 500:
-                    parser.allow_all = True
-                elif response.status >= 500:
-                    parser.allow_all = True
-                else:
-                    parser.parse((await response.text()).splitlines())
+            rules["status"] = status
+            if status in (401, 403):
+                parser.disallow_all = True
+            elif status >= 400:
+                parser.allow_all = True
+            else:
+                parser.parse(body.splitlines())
 
         except (aiohttp.ClientError, TimeoutError) as error:
             parser.allow_all = True
@@ -69,7 +100,6 @@ class RobotsParser:
             if owns_session:
                 await session.close()
 
-        self.cache[base_url] = rules
         return rules
 
     def can_fetch(self, url: str, user_agent: str = "*") -> bool:

@@ -330,6 +330,7 @@ class AsyncCrawler:
                 base_url,
                 session,
                 user_agent,
+                fetcher=self._fetch_robots_once,
             )
 
             if not self.robots.can_fetch(url, user_agent):
@@ -365,6 +366,24 @@ class AsyncCrawler:
                 "attempts": getattr(error, "attempts", 1),
             }
             return ""
+
+    async def _fetch_robots_once(
+        self,
+        robots_url: str,
+        user_agent: str,
+    ) -> tuple[int, str]:
+        domain = urlparse(robots_url).netloc.lower()
+        await self.rate_limiter.acquire(domain)
+        await self.semaphore_manager.acquire(robots_url)
+        try:
+            session = await self._get_session()
+            async with session.get(
+                robots_url,
+                headers={"User-Agent": user_agent},
+            ) as response:
+                return response.status, await response.text()
+        finally:
+            await self.semaphore_manager.release(robots_url)
 
     async def _fetch_once(
         self,
@@ -508,8 +527,10 @@ class AsyncCrawler:
     ) -> dict:
 
         html = await self.fetch_url(url)
+        response_metadata = self.response_metadata.get(url, {})
+        status_code = response_metadata.get("status_code", 0)
 
-        if not html:
+        if not html and not (200 <= status_code < 400):
             return {
                 "url": url,
                 "title": "",
@@ -533,7 +554,6 @@ class AsyncCrawler:
             html,
             url
         )
-        response_metadata = self.response_metadata.get(url, {})
         result.update(
             {
                 "crawled_at": datetime.now(timezone.utc),
@@ -595,9 +615,10 @@ class AsyncCrawler:
             try:
                 result = await self.fetch_and_parse(item.url)
 
+                status_code = result.get("status_code") if result else None
                 if not result or (
-                    not result.get("title")
-                    and not result.get("text")
+                    status_code is not None
+                    and not 200 <= status_code < 400
                 ):
                     error = self.failed_urls.get(
                         item.url,

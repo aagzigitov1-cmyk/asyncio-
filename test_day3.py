@@ -132,6 +132,31 @@ class Day3CrawlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(crawler.visited_urls), 4)
         self.assertGreater(get_max_active(), 1)
 
+    async def test_link_only_and_empty_success_pages_are_processed(self):
+        root = "https://example.com/index"
+        child = "https://example.com/empty"
+        pages = {
+            root: {
+                **page(root, [child]),
+                "title": "",
+                "text": "",
+                "status_code": 200,
+            },
+            child: {
+                **page(child),
+                "title": "",
+                "text": "",
+                "status_code": 200,
+            },
+        }
+        crawler, _ = self.make_crawler(pages)
+
+        results = await crawler.crawl([root], max_pages=10)
+
+        self.assertEqual(set(results), {root, child})
+        self.assertEqual(crawler.failed_urls, {})
+        self.assertEqual(crawler.queue.get_stats()["processed"], 2)
+
     async def test_depth_and_url_filters(self):
         root = "https://example.com/docs"
         pages = {
