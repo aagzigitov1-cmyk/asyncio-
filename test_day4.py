@@ -87,6 +87,8 @@ class Day4CrawlerTests(unittest.IsolatedAsyncioTestCase):
         app.router.add_get("/allowed", self._allowed)
         app.router.add_get("/retry", self._retry)
         app.router.add_get("/rate-limited", self._rate_limited)
+        app.router.add_get("/link-only", self._link_only)
+        app.router.add_get("/empty", self._empty)
 
         self.runner = web.AppRunner(app)
         await self.runner.setup()
@@ -134,6 +136,15 @@ class Day4CrawlerTests(unittest.IsolatedAsyncioTestCase):
                 headers={"Retry-After": "0"},
             )
         return web.Response(text="available")
+
+    async def _link_only(self, request):
+        return web.Response(
+            text='<a href="/empty"></a>',
+            content_type="text/html",
+        )
+
+    async def _empty(self, request):
+        return web.Response(text="", content_type="text/html")
 
     async def test_robots_parser_honors_user_agent_and_cache(self):
         parser = RobotsParser()
@@ -183,6 +194,56 @@ class Day4CrawlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.private_hits, 0)
         self.assertEqual(crawler.blocked_by_robots, 1)
         self.assertEqual(self.last_user_agent, "TestBot")
+
+    async def test_concurrent_robots_fetch_is_cached_and_limited(self):
+        crawler = AsyncCrawler(
+            requests_per_second=1000,
+            respect_robots=True,
+            min_delay=0,
+            jitter=0,
+            user_agent="OtherBot",
+            max_retries=0,
+        )
+        acquired_urls = []
+        original_acquire = crawler.semaphore_manager.acquire
+
+        async def tracked_acquire(url):
+            acquired_urls.append(url)
+            await original_acquire(url)
+
+        crawler.semaphore_manager.acquire = tracked_acquire
+        try:
+            results = await asyncio.gather(
+                crawler.fetch_url(f"{self.base_url}/allowed?request=1"),
+                crawler.fetch_url(f"{self.base_url}/allowed?request=2"),
+            )
+        finally:
+            await crawler.close()
+
+        self.assertEqual(results, ["allowed", "allowed"])
+        self.assertEqual(self.robots_hits, 1)
+        self.assertIn(f"{self.base_url}/robots.txt", acquired_urls)
+        self.assertEqual(crawler.get_rate_stats()["request_count"], 3)
+        self.assertEqual(crawler.semaphore_manager.active_tasks, 0)
+
+    async def test_real_link_only_and_empty_html_responses_succeed(self):
+        crawler = AsyncCrawler(
+            requests_per_second=1000,
+            respect_robots=False,
+            max_retries=0,
+            max_depth=1,
+        )
+        link_only = f"{self.base_url}/link-only"
+        empty = f"{self.base_url}/empty"
+        try:
+            results = await crawler.crawl([link_only], max_pages=2)
+        finally:
+            await crawler.close()
+
+        self.assertEqual(set(results), {link_only, empty})
+        self.assertEqual(results[link_only]["status_code"], 200)
+        self.assertEqual(results[empty]["status_code"], 200)
+        self.assertEqual(crawler.failed_urls, {})
 
     async def test_crawler_applies_crawl_delay(self):
         crawler = AsyncCrawler(
